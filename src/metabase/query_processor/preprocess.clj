@@ -28,6 +28,7 @@
    [metabase.query-processor.middleware.normalize-query :as normalize]
    [metabase.query-processor.middleware.optimize-temporal-filters :as optimize-temporal-filters]
    [metabase.query-processor.middleware.parameters :as parameters]
+   [metabase.query-processor.middleware.system-parameters :as system-parameters]
    [metabase.query-processor.middleware.permissions :as qp.perms]
    [metabase.query-processor.middleware.persistence :as qp.persistence]
    [metabase.query-processor.middleware.pre-alias-aggregations :as qp.pre-alias-aggregations]
@@ -82,6 +83,7 @@
    (ensure-pmbql #'expand-macros/expand-macros)
    (ensure-pmbql #'qp.resolve-referenced/resolve-referenced-card-resources)
    (ensure-legacy #'parameters/substitute-parameters)
+   (ensure-legacy #'system-parameters/substitute-parameters)
    (ensure-pmbql #'qp.resolve-source-table/resolve-source-tables)
    (ensure-pmbql #'qp.auto-bucket-datetimes/auto-bucket-datetimes)
    (ensure-legacy #'reconcile-bucketing/reconcile-breakout-and-order-by-bucketing)

@@ -28,7 +28,8 @@
    [metabase.task :as task]
    [metabase.troubleshooting :as troubleshooting]
    [metabase.util :as u]
-   [metabase.util.log :as log])
+   [metabase.util.log :as log]
+   [metabase.query-processor.init :as qp.init])
   (:import
    (java.lang.management ManagementFactory)))
 
@@ -154,6 +155,9 @@
 
   (ensure-audit-db-installed!)
   (init-status/set-progress! 0.95)
+
+  (qp.init/init)
+  (init-status/set-progress! 0.98)
 
   ;; start scheduler at end of init!
   (task/start-scheduler!)

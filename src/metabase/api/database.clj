@@ -34,6 +34,7 @@
    [metabase.public-settings.premium-features
     :as premium-features
     :refer [defenterprise]]
+   [metabase.query-processor.middleware.system-parameters :as system-parameters]
    [metabase.sample-data :as sample-data]
    [metabase.server.middleware.session :as mw.session]
    [metabase.sync.analyze :as analyze]
@@ -584,11 +585,32 @@
                                                      [:= :table.id :metabase_field.table_id]]]
               :limit      limit}))
 
-(defn- autocomplete-results [tables fields limit]
+(defn- autocomplete-variables [db-id search-string limit]
+  (if (or (= search-string "$%") (= search-string "%$%"))
+    (take limit @system-parameters/variable-list)
+    (if (or (str/starts-with? search-string "$") (str/starts-with? search-string "%$"))
+      (let [variables @system-parameters/variable-list
+            sub-string (str/starts-with? search-string "%")
+            search-variable (str/lower-case
+                              (subs search-string (if (true? sub-string) 2 1) (dec (count search-string))))
+            fn (if (true? sub-string) str/includes? str/starts-with?)]
+        (->> variables
+             (take 1000)
+             (filter #(fn (str/lower-case (:name %)) search-variable))
+             (take limit))
+        )
+      []
+      )
+    )
+  )
+
+(defn- autocomplete-results [tables fields variables limit]
   (let [tbl-count   (count tables)
         fld-count   (count fields)
+        vrd-count   (count variables)
         take-tables (min tbl-count (- limit (/ fld-count 2)))
-        take-fields (- limit take-tables)]
+        take-fields (min fld-count (- limit take-tables))
+        take-variables (min vrd-count (- limit take-tables take-fields))]
     (concat (for [{table-name :name} (take take-tables tables)]
               [table-name "Table"])
             (for [{:keys [table_name base_type semantic_type name]} (take take-fields fields)]
@@ -596,15 +618,22 @@
                          " "
                          base_type
                          (when semantic_type
-                           (str " " semantic_type)))]))))
+                           (str " " semantic_type)))])
+            (for [{:keys [name type value]} (take take-variables variables)]
+              [(str "$" name) (str "Variable "
+                         type
+                         " "
+                         value)]))))
 
 (defn- autocomplete-suggestions
   "match-string is a string that will be used with ilike. The it will be lowercased by autocomplete-{tables,fields}. "
   [db-id match-string]
   (let [limit  50
         tables (filter mi/can-read? (autocomplete-tables db-id match-string limit))
-        fields (readable-fields-only (autocomplete-fields db-id match-string limit))]
-    (autocomplete-results tables fields limit)))
+        fields (readable-fields-only (autocomplete-fields db-id match-string limit))
+        variables (autocomplete-variables db-id match-string limit)
+        ]
+    (autocomplete-results tables fields variables limit)))
 
 (def ^:private autocomplete-matching-options
   "Valid options for the autocomplete types. Can match on a substring (\"%input%\"), on a prefix (\"input%\"), or reject

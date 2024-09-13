@@ -15,21 +15,20 @@
    :password "111111"})
 
 (def variable-map (atom {}))
-
-(t2/table-name :model/tb_set_search_variable_values)
-(t2/table-name :model/sys_params)
+(def variable-list (atom []))
 
 (defn- list-variables [count]
   (binding [toucan2.honeysql2/*options* (assoc toucan2.honeysql2/*options*
                                           :dialect :mysql)]
     (t2/select :conn db-spec
-               :model/tb_set_search_variable_values
-               {:where [:or [:= :count nil] [:<= :count count]]})))
+               "tb_set_search_variable_values"
+               {:where [:or [:= :count nil] [:<= :count count]]
+                :order-by [[:name :asc]]})))
 
 (defn- get-variable-version []
   (binding [toucan2.honeysql2/*options* (assoc toucan2.honeysql2/*options*
                                           :dialect :mysql)]
-    (t2/select-one :conn db-spec :model/sys_params {:select [:params]
+    (t2/select-one :conn db-spec "sys_params" {:select [:params]
                                                 :order-by [[:user_id :asc]]
                                                 :limit 1})))
 
@@ -115,13 +114,16 @@
        (map (fn [{:keys [name type value convert_value]}]
               {:name name
                :type (type-name type)
-               :value (variable-value (type-name type) (if (= type 4) convert_value value))}))
-       ((fn [variables] (reduce
-                          (fn [map {:keys [name type value]}]
-                            (assoc map name {:type type :value value}))
-                          {}
-                          variables)))
+               :value (if (= type 4) convert_value value)}))
        ))
+
+(defn- transform-variable-map [variables]
+  (reduce
+    (fn [map {:keys [name type value]}]
+      (assoc map name {:type type :value (variable-value (type-name type) value)}))
+    {}
+    variables)
+  )
 
 (defn- get-current-version []
   (let [param (get-variable-version)]
@@ -140,7 +142,8 @@
               (loop [lastVer nil]
                 (let [ver (get-current-version)]
                   (when (not= lastVer ver)
-                    (reset! variable-map (load-variables))
+                    (reset! variable-list (load-variables))
+                    (reset! variable-map (transform-variable-map @variable-list))
                     (log/info "load system variables success")
                     )
                   (Thread/sleep 10000)

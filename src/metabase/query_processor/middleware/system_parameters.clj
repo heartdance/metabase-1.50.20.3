@@ -3,16 +3,17 @@
   (:require
    [toucan2.core :as t2]
    [clojure.string :as str]
+   [metabase.config :as config]
    [metabase.util.log :as log]
    [metabase.util.ipv4 :as ipv4]))
 
 (def db-spec
   {:dbtype   "mysql",
-   :dbname   "test"
-   :host     "localhost"
-   :port     3306
-   :user     "test"
-   :password "111111"})
+   :dbname   (config/config-str :mb-system-db-dbname)
+   :host     (config/config-str :mb-system-db-host)
+   :port     (config/config-str :mb-system-db-port)
+   :user     (config/config-str :mb-system-db-user)
+   :password (config/config-str :mb-system-db-pass)})
 
 (def variable-map (atom {}))
 (def variable-list (atom []))
@@ -94,14 +95,6 @@
         )
       )
 
-    (= type :regex)
-    (let [values (split-value value)]
-      (if (= (count values) 1)
-        (str "'" value "'")
-        (str "(" (str/join "," (map #(str "'" % "'") values)) ")")
-        )
-      )
-
     :else
     value
     )
@@ -120,7 +113,7 @@
 (defn- transform-variable-map [variables]
   (reduce
     (fn [map {:keys [name type value]}]
-      (assoc map name {:type type :value (variable-value (type-name type) value)}))
+      (assoc map name {:type type :value (variable-value type value)}))
     {}
     variables)
   )
@@ -243,8 +236,7 @@
   )
 
 (defn- create-ips-expr [key op ips]
-  (let [relation (if (= op "!=") "and" "or")
-        ]
+  (let [relation (if (= op "!=") "and" "or")]
     (if (= (count ips) 1)
       (create-ip-expr key op (ips 0))
       (str "(" (str/join (str " " relation " ") (map #(create-ip-expr key op %) ips)) ")")
@@ -259,8 +251,8 @@
       (loop [i 0 start 0 result ""]
         (if (< i (count parts))
           (let [part (parts i) ; value start end
-                variable (@variable-map (:value (parts i))) ; type value
-                last-part-sql (subs sql start (:start (parts i)))
+                variable (@variable-map (:value part)) ; type value
+                last-part-sql (subs sql start (:start part))
                 ]
             (if (nil? variable)
               (recur (inc i) (:end part) (str result last-part-sql "$" (:value part)))

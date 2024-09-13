@@ -52,7 +52,13 @@
    :mb-colorize-logs                (str (not is-windows?)) ; since PowerShell and cmd.exe don't support ANSI color escape codes or emoji,
    :mb-emoji-in-logs                (str (not is-windows?)) ; disable them by default when running on Windows. Otherwise they're enabled
    :mb-qp-cache-backend             "db"
-   :mb-jetty-async-response-timeout (str (* 10 60 1000))})  ; 10m
+   :mb-jetty-async-response-timeout (str (* 10 60 1000))
+   :mb-system-db-host              "localhost"
+   :mb-system-db-port              "3306"
+   :mb-system-db-dbname            "system"
+   :mb-system-db-user              "root"
+   :mb-system-db-pass              ""
+   })  ; 10m
 
 ;; separate map for EE stuff so merge conflicts aren't annoying.
 (def ^:private ee-app-defaults

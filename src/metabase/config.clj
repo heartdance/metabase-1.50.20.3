@@ -58,6 +58,7 @@
    :mb-system-db-dbname            "system"
    :mb-system-db-user              "root"
    :mb-system-db-pass              ""
+   :mb-ch-schema-path              "../../etc/clickhouse_schema"
    })  ; 10m
 
 ;; separate map for EE stuff so merge conflicts aren't annoying.

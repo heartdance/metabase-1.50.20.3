@@ -33,8 +33,8 @@
   (binding [toucan2.honeysql2/*options* (assoc toucan2.honeysql2/*options*
                                           :dialect :mysql)]
     (t2/select-one :conn db-spec "sys_params" {:select [:params]
-                                                :order-by [[:user_id :asc]]
-                                                :limit 1})))
+                                               :order-by [[:user_id :asc]]
+                                               :limit 1})))
 
 (defn- type-name [type]
   (cond
@@ -94,7 +94,7 @@
       )
 
     (= type :regex)
-    (let [values (split-value value)]
+    (let [values (split-value value false)]
       (if (= (count values) 1)
         (str "'" value "'")
         (str (str/join "\n" (map #(str "'" % "'") values)))
@@ -153,29 +153,42 @@
         )
       ver)
     (catch Exception e
-      (log/error e "load system variables failed")
+      (println "load variables exception: " (.getMessage e))
       last-ver)
+    )
+  )
+
+(defn- load-array-fields-from-dir [dir]
+  (if (.isDirectory dir)
+    (reduce
+      (fn [result fields]
+        (into result fields))
+      #{}
+      (for [file (file-seq dir)
+            :when (.endsWith (.getName file) ".json")]
+        (->> file
+             (.getPath)
+             (slurp)
+             (json/parse-string)
+             (#(% "columns"))
+             (filter #(% "array"))
+             (map #(% "name"))
+             (map #(str/replace % \. \_)))
+        ))
+    (do
+      #{})
     )
   )
 
 (defn load-array-fields [path]
   (let [dir (io/file path)]
     (if (.isDirectory dir)
-      (reduce
-        (fn [result fields]
-          (into result fields))
-        #{}
-        (for [file (file-seq dir)
-              :when (.endsWith (.getName file) ".json")]
-          (->> file
-               (.getPath)
-               (slurp)
-               (json/parse-string)
-               (#(% "columns"))
-               (filter #(% "array"))
-               (map #(% "name"))
-               (map #(str/replace % \. \_)))
-          ))
+      (let [oldVersionFields (load-array-fields-from-dir dir)
+            basicFields (load-array-fields-from-dir (io/file path "basic"))
+            protocolFields (load-array-fields-from-dir (io/file path "protocol"))
+            standaloneFields (load-array-fields-from-dir (io/file path "standalone"))]
+        (into #{} (concat oldVersionFields basicFields protocolFields standaloneFields))
+        )
       (do
         (log/error "load array fields failed, schema dir not found: " path)
         #{}
@@ -204,10 +217,10 @@
       (if (< i (count sql))
         (let [c (nth sql i)]
           (cond
-            (re-matches #"\w" (str c))
+            (re-matches #"[\w\.\-]" (str c))
             (recur (inc i) start inVar parts)
 
-            (true? inVar)
+            inVar
             (recur (inc i) i (= c \$) (if (> i (inc start))
                                         (conj parts {:value (subs sql (inc start) i) :start start :end i}) parts))
 
@@ -218,11 +231,15 @@
             (recur (inc i) start inVar parts)
             )
           )
-        (if (and (true? inVar) (> i (inc start)))
+        (if (and inVar (> i (inc start)))
           (conj parts {:value (subs sql (inc start) i) :start start :end i}) parts)
         ))
     []
     )
+  )
+
+(defn- blank [c]
+  (or (= c \space) (= c \newline) (= c \tab))
   )
 
 (defn- find-key [sql variable]
@@ -231,7 +248,7 @@
       (let [c (nth sql i)]
         (cond
           (= status 0)
-          (if (= c \ )
+          (if (blank c)
             (recur (dec i) 0 i result)
             (cond
               (or (= c \n) (= c \N))
@@ -255,23 +272,35 @@
             )
 
           (= status 1)
-          (if (= c \ )
+          (if (blank c)
             (recur (dec i) 1 i result)
-            (if (re-matches #"\w" (str c))
-              (recur (dec i) 2 (inc i) result)
-              nil
+            (if (= c \`)
+              (recur (dec i) 3 i result)
+              (if (re-matches #"\w" (str c))
+                (recur (dec i) 2 (inc i) result)
+                nil
+                )
               )
             )
 
           (= status 2)
-          (if (re-matches #"\w" (str c))
+          (if (or (re-matches #"\w" (str c)) (= c \.))
             (recur (dec i) 2 end result)
             (conj result {:key (subs sql (inc i) end) :start (inc i)})
+            )
+
+          (= status 3)
+          (if (= c \`)
+            (conj result {:key (subs sql (inc i) end) :start i :quote true})
+            (recur (dec i) 3 end result)
             )
 
           :else
           nil
           )
+        )
+      (if (and (= status 2) (not= end 0))
+        {:key (subs sql 0 end) :start 0}
         )
       )
     )
@@ -326,6 +355,13 @@
     )
   )
 
+(defn- expr-key [{:keys [key quote]}]
+  (if (true? quote)
+    (str "`" key "`")
+    key
+    )
+  )
+
 (defn- substitute-sql-parameters [sql]
   (let [parts (find-variables sql)]
     (if (empty? parts)
@@ -347,7 +383,7 @@
                       (recur (inc i) (:end part)
                              (str result
                                   (subs sql start (:start expr))
-                                  (create-ips-expr (:key expr) (:op expr) (str/split (:value variable) #",") (contains? @array-fields (:key expr)))))
+                                  (create-ips-expr (expr-key expr) (:op expr) (str/split (:value variable) #",") (contains? @array-fields (:key expr)))))
                       (if (str/includes? (:value variable) ",")
                         (if (contains? @array-fields (:key expr))
                           (recur (inc i) (:end part)
@@ -355,14 +391,14 @@
                                       (subs sql start (:start expr))
                                       (if (= (:op expr) "=") "hasAny" "not hasAny")
                                       "("
-                                      (:key expr)
+                                      (expr-key expr)
                                       ", ["
                                       (wrapper-ipv4 (str/split (:value variable) #","))
                                       "])"))
                           (recur (inc i) (:end part)
                                  (str result
                                       (subs sql start (:start expr))
-                                      (:key expr)
+                                      (expr-key expr)
                                       " "
                                       (if (= (:op expr) "=") "in" "not in")
                                       " ("
@@ -375,14 +411,14 @@
                                       (subs sql start (:start expr))
                                       (if (= (:op expr) "=") "has" "not has")
                                       "("
-                                      (:key expr)
+                                      (expr-key expr)
                                       ", "
                                       (str "toIPv4(" (:value variable) ")")
                                       ")"))
                           (recur (inc i) (:end part)
                                  (str result
                                       (subs sql start (:start expr))
-                                      (:key expr)
+                                      (expr-key expr)
                                       " "
                                       (:op expr)
                                       " "
@@ -404,14 +440,14 @@
                                     (subs sql start (:start expr))
                                     (if (= (:op expr) "=") "hasAny" "not hasAny")
                                     "("
-                                    (:key expr)
+                                    (expr-key expr)
                                     ", ["
                                     (:value variable)
                                     "])"))
                         (recur (inc i) (:end part)
                                (str result
                                     (subs sql start (:start expr))
-                                    (:key expr)
+                                    (expr-key expr)
                                     " "
                                     (if (= (:op expr) "=") "in" "not in")
                                     " ("
@@ -424,14 +460,14 @@
                                     (subs sql start (:start expr))
                                     (if (= (:op expr) "=") "has" "not has")
                                     "("
-                                    (:key expr)
+                                    (expr-key expr)
                                     ", "
                                     (:value variable)
                                     ")"))
                         (recur (inc i) (:end part)
                                (str result
                                     (subs sql start (:start expr))
-                                    (:key expr)
+                                    (expr-key expr)
                                     " "
                                     (:op expr)
                                     " "
@@ -450,11 +486,11 @@
                         (recur (inc i) (:end part)
                                (str result
                                     (subs sql start (:start expr))
-                                    (create-regex-list-expr (:key expr) (:op expr) (str/split (:value variable) #"\n") true)))
+                                    (create-regex-list-expr (expr-key expr) (:op expr) (str/split (:value variable) #"\n") true)))
                         (recur (inc i) (:end part)
                                (str result
                                     (subs sql start (:start expr))
-                                    (create-regex-list-expr (:key expr) (:op expr) (str/split (:value variable) #"\n") false)))
+                                    (create-regex-list-expr (expr-key expr) (:op expr) (str/split (:value variable) #"\n") false)))
                         )
                       (if (contains? @array-fields (:key expr))
                         (recur (inc i) (:end part)
@@ -464,14 +500,14 @@
                                     "(x -> match(x,"
                                     (:value variable)
                                     "), "
-                                    (:key expr)
+                                    (expr-key expr)
                                     ")"))
                         (recur (inc i) (:end part)
                                (str result
                                     (subs sql start (:start expr))
                                     (if (= (:op expr) "=") "match" "not match")
                                     "("
-                                    (:key expr)
+                                    (expr-key expr)
                                     ", "
                                     (:value variable)
                                     ")"))
@@ -501,7 +537,7 @@
   (let [sql (-> query :native :query)]
     (if (and sql (str/includes?  sql "$"))
       (let [new-sql (substitute-sql-parameters sql)]
-        (log/debug "substitute parameters sql " sql)
+        (log/debug "substitute parameters sql '" sql "' to '" new-sql "'")
         (assoc-in query [:native :query] new-sql)
         )
       query

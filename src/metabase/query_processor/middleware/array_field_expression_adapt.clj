@@ -168,7 +168,7 @@
     )
   )
 
-(defn- find-key [sql op]
+(defn- find-field-key [sql op]
   (loop [i (dec (:start op)) status 0 end (:start op)]
     (if (>= i 0)
       (let [c (nth sql i)]
@@ -190,14 +190,14 @@
 
           (= status 1)
           (if (= c \`)
-            {:key (subs sql (inc i) end) :start i :quote true}
+            {:key (subs sql (inc i) end) :start i :end (inc end) :quote true}
             (recur (dec i) 1 end)
             )
 
           (= status 2)
-          (if (or (re-matches #"\w" (str c)) (= c \.))
+          (if (or (re-matches #"\w" (str c)))
             (recur (dec i) 2 end)
-            {:key (subs sql (inc i) end) :start (inc i)}
+            {:key (subs sql (inc i) end) :start (inc i) :end end}
             )
 
           :else
@@ -207,6 +207,35 @@
       (if (and (= status 2) (not= end 0))
         {:key (subs sql 0 end) :start 0}
         )
+      )
+    )
+  )
+
+(defn- find-full-key [sql key]
+  (if (or (<= (:start key) 0) (not= (nth sql (dec (:start key))) \.))
+    (assoc key :full-key (:key key))
+    (loop [i (dec (:start key))]
+      (if (>= i 0)
+        (let [c (nth sql i)]
+          (cond
+            (or (= c \`) (= c \.) (= c \-) (re-matches #"\w" (str c)))
+            (recur (dec i))
+
+            :else
+            (assoc key :full-key (subs sql (inc i) (:end key)) :start (inc i))
+            )
+          )
+        (assoc key :full-key (subs sql 0 (:end key)) :start 0)
+        )
+      )
+    )
+  )
+
+(defn- find-key [sql op]
+  (let [key (find-field-key sql op)]
+    (if (nil? key)
+      nil
+      (find-full-key sql key)
       )
     )
   )
@@ -271,7 +300,7 @@
                     {:start (:start exprKey)
                      :end (:end exprValue)
                      :key (:key exprKey)
-                     :quote (:quote exprKey)
+                     :full-key (:full-key exprKey)
                      :value (:value exprValue)
                      :op (:op op)}
                     )
@@ -285,19 +314,19 @@
     )
   )
 
-(defn- build-expression [{:keys [key op value type]}]
+(defn- build-expression [{:keys [full-key op value type]}]
   (cond
     (equals-ignore-case value "null")
-    (str (if (or (= op "!=") (= op "is not")) "notEmpty" "empty") "(" key ")")
+    (str (if (or (= op "!=") (= op "is not")) "notEmpty" "empty") "(" full-key ")")
 
     (= op "=")
-    (str "has(" key "," (if (= type "IPv4") (str "toIPv4(" value ")") value) ")")
+    (str "has(" full-key "," (if (= type "IPv4") (str "toIPv4(" value ")") value) ")")
 
     (= op "!=")
-    (str "not has(" key "," (if (= type "IPv4") (str "toIPv4(" value ")") value) ")")
+    (str "not has(" full-key "," (if (= type "IPv4") (str "toIPv4(" value ")") value) ")")
 
     :else
-    (str "arrayExists(x -> x " op " " (if (= type "IPv4") (str "toIPv4(" value ")") value) "," key ")")
+    (str "arrayExists(x -> x " op " " (if (= type "IPv4") (str "toIPv4(" value ")") value) "," full-key ")")
     )
   )
 

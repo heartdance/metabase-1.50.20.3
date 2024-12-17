@@ -30,6 +30,7 @@
    [metabase.query-processor.middleware.parameters :as parameters]
    [metabase.query-processor.middleware.system-parameters :as system-parameters]
    [metabase.query-processor.middleware.array-field-expression-adapt :as array-field-expression-adapt]
+   [metabase.query-processor.middleware.time-to-number :as time-to-number]
    [metabase.query-processor.middleware.permissions :as qp.perms]
    [metabase.query-processor.middleware.persistence :as qp.persistence]
    [metabase.query-processor.middleware.pre-alias-aggregations :as qp.pre-alias-aggregations]
@@ -86,6 +87,7 @@
    (ensure-legacy #'parameters/substitute-parameters)
    (ensure-legacy #'system-parameters/substitute-parameters)
    (ensure-legacy #'array-field-expression-adapt/adapt-expression)
+   (ensure-legacy #'time-to-number/time-to-number)
    (ensure-pmbql #'qp.resolve-source-table/resolve-source-tables)
    (ensure-pmbql #'qp.auto-bucket-datetimes/auto-bucket-datetimes)
    (ensure-legacy #'reconcile-bucketing/reconcile-breakout-and-order-by-bucketing)

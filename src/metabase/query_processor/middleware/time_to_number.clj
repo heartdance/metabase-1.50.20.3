@@ -304,9 +304,9 @@
   "change time to number."
   [query]
   (let [filter (-> query :query :filter)
-        filter-hack (hack-filter filter)
-        new-filter (time-to-number-in-filter filter-hack)]
+        ;filter-hack (hack-filter filter)
+        new-filter (time-to-number-in-filter filter)]
     (do
-      (assoc-in query [:query :filter] new-filter)
+      (assoc-in query [:query :filter] filter)
       )
     ))

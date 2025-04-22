@@ -8,6 +8,7 @@
    [metabase.driver :as driver]
    [metabase.driver.common :as driver.common]
    [metabase.driver.sql.query-processor.deprecated :as sql.qp.deprecated]
+   [metabase.driver.sql.query-processor.auto-use-array-join :as sql.qp.auto-use-array-join]
    [metabase.legacy-mbql.schema :as mbql.s]
    [metabase.legacy-mbql.util :as mbql.u]
    [metabase.lib.convert :as lib.convert]
@@ -1505,7 +1506,10 @@
                     {:honeysql-form honeysql-form, :form form})))
   (if (map? honeysql-form)
     #_{:clj-kondo/ignore [:discouraged-var]}
-    (sql/format honeysql-form {:dialect dialect, :quoted true, :quoted-snake false})
+    (let [new-honeysql-form (sql.qp.auto-use-array-join/auto-use-array-join honeysql-form)
+          sql-format (sql/format new-honeysql-form {:dialect dialect, :quoted true, :quoted-snake false})]
+      sql-format
+      )
     ;; for weird cases when we want to compile just one particular snippet. Why are we doing this? Who knows. This seems
     ;; to not really be supported by Honey SQL 2, so hack around it for now. See upstream issue
     ;; https://github.com/seancorfield/honeysql/issues/456
